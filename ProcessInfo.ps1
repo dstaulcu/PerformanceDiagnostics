@@ -1,4 +1,4 @@
-﻿param (
+param (
     [string]$ProcessOfInterest = "explorer.exe"
  )
 
@@ -980,6 +980,8 @@ if ($ProcessInfo) {
 
         $Module = ((([string]$Start.MappedFile).Split("\"))[-1]).ToLower()
         $Function = [string]$Start.Symbol
+
+        $StartAddress = "$($Module)!$($Function)"
       
         switch ( $Thread.ThreadState )
         {
@@ -1022,8 +1024,7 @@ if ($ProcessInfo) {
             TheeadWaitReason = $TheeadWaitReason
             PriorityBase = $thread.PriorityBase
             PriorityCurrent = $thread.PriorityCurrent
-            Module = $Module
-            Function = $Function
+            StartAddress = $StartAddress
         }
 
         $Records += New-Object -TypeName PSObject -Property $Record
@@ -1034,7 +1035,7 @@ if ($ProcessInfo) {
     if (!$Kernel32::CloseHandle.Invoke($ProcessHandle)) { Write-Error "Unable to close handle for process $($ProcessInfo.ProcessId)." }
     [GC]::Collect()
 
-    $Records | Sort-Object Rank | Select Process, ProcessID, ThreadID, PercentProcessorTime, ContextSwitchesPersec, ThreadState, TheeadWaitReason, PriorityBase, PriorityCurrent, Module, Function  | Format-Table
+    $Records | Sort-Object Rank | Select Process, ProcessID, ThreadID, PercentProcessorTime, ContextSwitchesPersec, ThreadState, TheeadWaitReason, PriorityBase, PriorityCurrent, StartAddress  | Format-Table
 } else {
     write-host "Selected process `"$($ProcessOfInterest)`" is not running."
 }
