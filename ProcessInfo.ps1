@@ -1,7 +1,8 @@
 param (
-    [string]$ProcessOfInterest = "explorer.exe"
+    [string]$ProcessOfInterest = "explorer.exe",
+    [ValidateSet("ThreadID","PercentProcessorTime","ContextSwitchesPersec")]
+	$SortOn = "PercentProcessorTime"
  )
-
 
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Warning "This script should be ran with administrative priviliges."
@@ -959,7 +960,7 @@ if ($ProcessInfo) {
     }
 
     $ThreadInfo =  Get-WmiObject -Query "SELECT * from Win32_PerfRawData_PerfProc_Thread WHERE IDProcess = '$($ProcessInfo.ProcessId)'"
-    $ActiveThreads = $ThreadInfo | Sort-Object PercentProcessorTime -Descending | Select-Object -First 20
+    $ActiveThreads = $ThreadInfo | Sort-Object $SortOn -Descending | Select-Object -First 20
 
     $Records = @()
     $Counter = 0
@@ -1017,7 +1018,6 @@ if ($ProcessInfo) {
             Process = $ProcessInfo.Name
             ProcessID = $ProcessInfo.ProcessId
             ThreadID = $thread.IDThread
-            Rank = $Counter
             PercentProcessorTime = $thread.PercentProcessorTime
             ContextSwitchesPersec = $thread.ContextSwitchesPersec
             ThreadState = $ThreadState
@@ -1035,7 +1035,7 @@ if ($ProcessInfo) {
     if (!$Kernel32::CloseHandle.Invoke($ProcessHandle)) { Write-Error "Unable to close handle for process $($ProcessInfo.ProcessId)." }
     [GC]::Collect()
 
-    $Records | Sort-Object Rank | Select Process, ProcessID, ThreadID, PercentProcessorTime, ContextSwitchesPersec, ThreadState, TheeadWaitReason, PriorityBase, PriorityCurrent, StartAddress  | Format-Table
+    $Records | Sort-Object $SortOn -Descending | Select Process, ProcessID, ThreadID, PercentProcessorTime, ContextSwitchesPersec, ThreadState, TheeadWaitReason, PriorityBase, PriorityCurrent, StartAddress  | Format-Table
 } else {
     write-host "Selected process `"$($ProcessOfInterest)`" is not running."
 }
