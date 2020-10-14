@@ -1,10 +1,4 @@
-param (
-    [string]$ProcessOfInterest = "explorer.exe",
-    [ValidateSet("ThreadID","PercentProcessorTime","ContextSwitchesPersec")]
-	$SortOn = "PercentProcessorTime"
- )
-
-if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+﻿if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Warning "This script should be ran with administrative priviliges."
 }
 
@@ -942,25 +936,34 @@ function local:Trace-Thread {
 
 ################################################################################################
 
-$ProcessInfo = Get-WmiObject -Namespace "root\cimv2" -Class "win32_process" -Filter "Name = '$($ProcessOfInterest)'"
 
-if ($ProcessInfo) {
+$processes = Get-CimInstance Win32_Process
+foreach ($process in $processes) {
+    $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner | select -ExpandProperty user
+    Add-Member -InputObject $process -MemberType NoteProperty -Force -Name Owner  -Value $owner
+}
+$processes = $processes | ?{$_.ProcessId -ne $PID}   # exclude on process from list
+$processes = $processes |  Select ProcessId, Name, Owner, HandleCount, WorkingSetSize, VirtualSize, Path | sort Name |  Out-GridView -Title "Select a process instance" -PassThru
+
+foreach ($process in $processes) {
 
     # Get process handle
-    if (($ProcessHandle = $Kernel32::OpenProcess(0x1F0FFF, $false, $ProcessInfo.ProcessId)) -eq 0) {
-        Write-Error -Message "Unable to open handle for process $($ProcessInfo.ProcessId)... Moving on."
+    if (($ProcessHandle = $Kernel32::OpenProcess(0x1F0FFF, $false, $process.ProcessId)) -eq 0) {
+        Write-Error -Message "Unable to open handle for process $($process.ProcessId)... Moving on."
         continue
     }
 
+    write-host "Working on $($process.name):$($process.processid)..."
+
     # initialize symbol header
     if (!$Dbghelp::SymInitialize($ProcessHandle, $null, $false)) {
-        Write-Error "Unable to initialize symbol handler for process $($ProcessInfo.ProcessId).... Quitting."
-        if (!$Kernel32::CloseHandle.Invoke($ProcessHandle)) { Write-Error "Unable to close handle for process $($ProcessInfo.ProcessId)." }
+        Write-Error "Unable to initialize symbol handler for process $($process.ProcessId).... Quitting."
+        if (!$Kernel32::CloseHandle.Invoke($ProcessHandle)) { Write-Error "Unable to close handle for process $($process.ProcessId)." }
         break
     }
 
-    $ThreadInfo =  Get-WmiObject -Query "SELECT * from Win32_PerfRawData_PerfProc_Thread WHERE IDProcess = '$($ProcessInfo.ProcessId)'"
-    $ActiveThreads = $ThreadInfo | Sort-Object $SortOn -Descending | Select-Object -First 20
+    $ThreadInfo =  Get-WmiObject -Query "SELECT * from Win32_PerfRawData_PerfProc_Thread WHERE IDProcess = '$($process.ProcessId)'"
+    $ActiveThreads = $ThreadInfo | Sort-Object PercentProcessorTime -Descending | Select-Object -First 20
 
     $Records = @()
     $Counter = 0
@@ -1015,8 +1018,8 @@ if ($ProcessInfo) {
         }
 
         $Record = @{
-            Process = $ProcessInfo.Name
-            ProcessID = $ProcessInfo.ProcessId
+            Process = $process.Name
+            ProcessID = $process.ProcessId
             ThreadID = $thread.IDThread
             PercentProcessorTime = $thread.PercentProcessorTime
             ContextSwitchesPersec = $thread.ContextSwitchesPersec
@@ -1031,12 +1034,11 @@ if ($ProcessInfo) {
 
     }
 
-    if (!$Dbghelp::SymCleanup($ProcessHandle)) { Write-Error "Unable to cleanup symbol resources for process $($ProcessInfo.ProcessId)." }
-    if (!$Kernel32::CloseHandle.Invoke($ProcessHandle)) { Write-Error "Unable to close handle for process $($ProcessInfo.ProcessId)." }
+    if (!$Dbghelp::SymCleanup($ProcessHandle)) { Write-Error "Unable to cleanup symbol resources for process $($process.ProcessId)." }
+    if (!$Kernel32::CloseHandle.Invoke($ProcessHandle)) { Write-Error "Unable to close handle for process $($process.ProcessId)." }
     [GC]::Collect()
 
     $Records | Sort-Object $SortOn -Descending | Select Process, ProcessID, ThreadID, PercentProcessorTime, ContextSwitchesPersec, ThreadState, TheeadWaitReason, PriorityBase, PriorityCurrent, StartAddress  | Format-Table
-} else {
-    write-host "Selected process `"$($ProcessOfInterest)`" is not running."
+
 }
 
